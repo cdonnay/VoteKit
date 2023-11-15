@@ -937,8 +937,8 @@ class HighestScore(Election):
         untied_ranking = tie_broken_ranking(ranking = ranking, profile = self.state.profile,
                                      tiebreak=self.tiebreak)
 
-        if ranking != untied_ranking:
-            print("A tie was broken.")
+        # if ranking != untied_ranking:
+        #     print("A tie was broken.")
         elected, eliminated = elect_cands_from_set_ranking(
             ranking=untied_ranking, seats=self.seats
         )

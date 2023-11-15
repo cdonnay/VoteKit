@@ -81,9 +81,9 @@ class PreferenceProfile(BaseModel):
             weights (values)
         """
         num_ballots = self.num_ballots()
-        di: dict = {}
-
+    
         if isinstance(self.ballots[0], Ballot):
+            di: dict = {}
             for ballot in self.ballots:
                 rank_tuple = tuple(next(iter(item)) for item in ballot.ranking)
                 if standardize:
@@ -97,6 +97,7 @@ class PreferenceProfile(BaseModel):
         
      
         elif isinstance(self.ballots[0], PointBallot):
+            di: dict = {c: Fraction(0,1) for c in self.candidates}
             for ballot in self.ballots:
                 weight = ballot.weight
                 if standardize:
