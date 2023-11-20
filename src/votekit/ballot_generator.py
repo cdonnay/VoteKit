@@ -875,7 +875,13 @@ class Approval(BallotGenerator):
         # Call the parent class's __init__ method to handle common parameters
         super().__init__(**data)
 
-    def generate_profile(self, number_of_ballots) -> PreferenceProfile:
+    def generate_profile(self, number_of_ballots, all_eliminated_rule) -> PreferenceProfile:
+
+        """
+        all_eliminated_rule = True means that if everyone is eliminated by the threshold, we 
+        default to using 1/n.  If it is False, that means we use the max candidate preference
+        as the threshold.
+        """
         ballot_pool = []
         # the number of ballots per bloc is determined by Huntington-Hill apportionment
         blocs = list(self.bloc_voter_prop.keys())
@@ -887,15 +893,22 @@ class Approval(BallotGenerator):
             # number of voters in this bloc
             num_ballots = ballots_per_block[bloc]
             pref_interval_dict = self.pref_interval_by_bloc[bloc]
-            # creates the interval of probabilities for candidates supported by this block
-            # cand_support_vec = [pref_interval_dict[cand] for cand in self.candidates]
 
-            # possible that remaining cands is empty if we use 2/n; so try making it the max threshold for candidate
-            max_threshold = max(pref_interval_dict.values())
-            # threshold = random.uniform(1/len(self.candidates), 2/len(self.candidates))
-            threshold = random.uniform(1/len(self.candidates), max_threshold)
+            if all_eliminated_rule:
+                threshold = random.uniform(1/len(self.candidates), 2/len(self.candidates))
+            
+            else:
+                # possible that remaining cands is empty if we use 2/n; so try making it the max threshold for candidate
+                max_threshold = max(pref_interval_dict.values())
+                threshold = random.uniform(1/len(self.candidates), max_threshold)
 
             remaining_cands = [cand for cand in self.candidates if pref_interval_dict[cand] >= threshold]
+
+            # if not all_eliminated_rule, remaining_cands cannot be empty
+            if all_eliminated_rule and len(remaining_cands) ==0:
+                threshold = 1/len(self.candidates)
+                remaining_cands = [cand for cand in self.candidates if pref_interval_dict[cand] >= threshold]
+
             cand_support_vec = [pref_interval_dict[cand] for cand in remaining_cands]
             length = sum(cand_support_vec)
             cand_support_vec = [x/length for x in cand_support_vec]
