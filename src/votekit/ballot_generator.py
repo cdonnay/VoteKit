@@ -1153,4 +1153,194 @@ class PlackettLuce(Limited):
         k = len(data["candidates"])
         # Call the parent class's __init__ method to handle common parameters
         super().__init__(k=k, **data)
+
+class modified_PlackettLuce(BallotGenerator):
+    """
+    Class for generating ballots using a modified Plackett-Luce model. 
+    This model first samples a ballot type by flipping a cohesion parameter weighted coin.
+    It then fills out the ballot type via sampling with out replacement from the interval.
+
+    Only works with 2 blocs at the moment.
+    
+    
+    Can be initialized with an interval or can be
+    constructed with the Dirichlet distribution using the `from_params` method in the
+    `BallotGenerator` class.
+
+    **Attributes**
+
+    `slate_to_candidates`
+    :   dictionary mapping of slate to candidates (ex. {bloc: [candidate]}).
+
+    `pref_interval_by_bloc`
+    :   dictionary mapping of bloc to preference interval.
+        (ex. {bloc: {candidate : interval length}}).
+
+    `bloc_voter_prop`
+    :   dictionary mapping of bloc to voter proportions (ex. {bloc: proportion}).
+
+    `cohesion_parameters`
+    :   dictionary mapping of slate to cohesion level (ex. {bloc: .7}).
+
+    **Methods**
+
+    See `BallotGenerator` base class
+    """
+
+    def __init__(self, slate_to_candidates: dict, cohesion_parameters: dict, **data):
+        # Call the parent class's __init__ method to handle common parameters
+        super().__init__(**data)
+        self.slate_to_candidates = slate_to_candidates
+        self.cohesion_parameters = cohesion_parameters
+
+    def generate_profile(self, number_of_ballots, by_bloc: bool = False) -> Union[PreferenceProfile,
+                                                                                  dict]:
+        # the number of ballots per bloc is determined by Huntington-Hill apportionment
+        blocs = list(self.bloc_voter_prop.keys())
+        bloc_props = list(self.bloc_voter_prop.values())
+        ballots_per_block = dict(
+            zip(blocs, apportion.compute("huntington", bloc_props, number_of_ballots))
+        )
+
+        pp_by_bloc = {}
+
+        for bloc in blocs: 
+            ballot_pool = []
+            # number of voters in this bloc
+            num_ballots = ballots_per_block[bloc]
+
+            # TODO this assumes only two blocs
+            ballot_type_distribution = [self.cohesion_parameters[bloc], 1-self.cohesion_parameters[bloc]]
+            non_zero_cands = [c for c,v in self.pref_interval_by_bloc[bloc].items() if v>0]
+            
+            for i in range(num_ballots):
+                # sample ballot type
+                ballot_type = []
+                candidate_count = {b:0 for b in blocs}
+                for j in range(len(non_zero_cands)):
+                    # choose a bloc as the next slot in the ballot
+                    cand_bloc = list(np.random.choice(blocs, size =1, p =ballot_type_distribution))[0]
+                    ballot_type.append(cand_bloc)
+                    candidate_count[cand_bloc] += 1
+
+                    # if there are more candidates to fill
+                    if len(ballot_type) < len(non_zero_cands):
+                        for b in blocs:
+                            # and you are out of non-zero candidates for your slate
+                            if candidate_count[b] == len([c for c in self.slate_to_candidates[b] 
+                                                          if self.pref_interval_by_bloc[bloc][c]>0]):
+                                 # TODO this assumes only two blocs
+                                 opp_bloc = set(blocs).difference(b).pop()
+
+                                 # fill out rest of ballot with opposing bloc
+                                 for i in range(len(non_zero_cands) - len(ballot_type)):
+                                     ballot_type.append(opp_bloc)
+                    
+                    if len(ballot_type) == len(non_zero_cands):
+                        break
+            
+                cand_ordering_by_bloc = {b:[] for b in blocs}
+                pref_interval = self.pref_interval_by_bloc[bloc]
+
+                for b in blocs:
+                    # create a pref interval dict of only this blocs candidates
+                    bloc_cand_pref_interval = {c:s for c,s in pref_interval.items() if c in self.slate_to_candidates[b] and s>0}
+
+                    cands = list(bloc_cand_pref_interval.keys())
+                    distribution = [bloc_cand_pref_interval[c] for c in cands]
+                    # normalize
+                    mass = sum(distribution)
+                    distribution = [v/mass for v in distribution]
+
+                    cand_ordering = np.random.choice(cands, len(cands), replace=False, p = distribution)
+                    cand_ordering_by_bloc[b] = list(cand_ordering)
+                
+                ranking = []
+                for b in ballot_type:
+                    # append the current first candidate, then remove them from the ordering
+                    ranking.append({cand_ordering_by_bloc[b][0]})
+                    cand_ordering_by_bloc[b].pop(0)
+                
+                zero_cands = [c for c,s in pref_interval.items() if s == 0]
+                ranking.append(set(zero_cands))
+                ballot_pool.append(Ballot(ranking =ranking, weight = 1))
+
+            pp = PreferenceProfile(ballots=ballot_pool)
+            pp = pp.condense_ballots()
+            pp_by_bloc[bloc] = pp
         
+        if by_bloc:
+            return pp_by_bloc
+
+        # else combine the profiles
+        else:
+            pp = PreferenceProfile(ballots=[])
+            for profile in pp_by_bloc.values():
+                pp+= profile
+            return(pp)
+    
+
+
+class Approval(BallotGenerator):
+    def __init__(self, **data):
+        # Call the parent class's __init__ method to handle common parameters
+        super().__init__(**data)
+
+    def generate_profile(self, number_of_ballots, by_bloc: bool = False) -> Union[PreferenceProfile,
+                                                                                  dict]:
+        
+        # the number of ballots per bloc is determined by Huntington-Hill apportionment
+        blocs = list(self.bloc_voter_prop.keys())
+        bloc_props = list(self.bloc_voter_prop.values())
+        ballots_per_block = dict(zip(blocs, apportion.compute("huntington", bloc_props, 
+                                                              number_of_ballots)))
+
+        pp_by_bloc = {}
+        for bloc in blocs:
+            ballot_pool = []
+            # number of voters in this bloc
+            num_ballots = ballots_per_block[bloc]
+            pref_interval_dict = self.pref_interval_by_bloc[bloc]
+            cands = list(pref_interval_dict.keys())
+
+            for _ in range(num_ballots):
+                # choose a scaling for each voter to represent tendency to signal 
+                # beta ->0 makes preferences uniform, beta->infty boosts candidate with largest
+                # support
+                beta = np.random.uniform(1/3, 5/3)
+                
+                cand_support_vec = [np.pow(pref_interval_dict[c],beta) for c in cands]
+                length = sum(cand_support_vec)
+                cand_support_vec = [x/length for x in cand_support_vec]
+
+
+                # generates approvals based on probability distribution of candidate support
+                # approval just assigns at most one point to each candidate, so we use set
+                ranking = set(
+                    np.random.choice(
+                        cands,
+                        len(cands),
+                        p=cand_support_vec,
+                        replace=True,
+                    )
+                )
+
+                # ballot needs entry as a list
+                ballot = Ballot(ranking = ranking)
+                ballot_pool.append(ballot)
+
+            pp = PreferenceProfile(ballots = ballot_pool, candidates = self.candidates)
+            pp = pp.condense_ballots()
+            pp_by_bloc[bloc] = pp
+        
+        
+        if by_bloc:
+            return pp_by_bloc
+
+        # else combine the profiles
+        else:
+            pp = PreferenceProfile(ballots=[])
+            for profile in pp_by_bloc.values():
+                pp+= profile
+            return(pp)
+    
