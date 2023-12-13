@@ -1339,12 +1339,14 @@ class modified_Limited(BallotGenerator):
         # dictionary to store preference profiles by bloc
         pp_by_bloc = {}
 
-        for bloc in self.bloc_voter_prop.keys():
+        for i,bloc in enumerate(blocs):
             ballot_pool = []
             # number of voters in this bloc
             num_ballots = ballots_per_block[bloc]
             # TODO this assumes only two blocs
             ballot_type_distribution = [self.cohesion_parameters[bloc], 1-self.cohesion_parameters[bloc]]
+            opposing_bloc = blocs[(i+1)%2]
+            blocs_to_sample = [bloc, opposing_bloc]
     
             for _ in range(num_ballots):
                 # sample ballot type
@@ -1353,7 +1355,7 @@ class modified_Limited(BallotGenerator):
                 break_loop  = False
                 for j in range(self.k):
                     # choose a bloc as the next slot in the ballot
-                    cand_bloc = list(np.random.choice(blocs, size =1, p =ballot_type_distribution))[0]
+                    cand_bloc = list(np.random.choice(blocs_to_sample, size =1, p =ballot_type_distribution))[0]
                     ballot_type.append(cand_bloc)
                     candidate_count[cand_bloc] += 1
 
@@ -1550,7 +1552,7 @@ class modified_Cumulative(BallotGenerator):
         
         pp_by_bloc = {}
 
-        for bloc in blocs:
+        for i,bloc in enumerate(blocs):
             ballot_pool = []
             # number of voters in this bloc
             num_ballots = ballots_per_block[bloc]
@@ -1558,6 +1560,8 @@ class modified_Cumulative(BallotGenerator):
 
             # TODO assumes one bloc
             bloc_dist = [self.cohesion_parameters[bloc], 1-self.cohesion_parameters[bloc]]
+            opposing_bloc = blocs[(i+1)%2]
+            blocs_to_sample = [bloc, opposing_bloc]
 
             for _ in range(num_ballots):
 
@@ -1565,7 +1569,7 @@ class modified_Cumulative(BallotGenerator):
                 ballot_type = []
                 for j in range(self.num_votes):
                     # choose a bloc as the next slot in the ballot
-                    cand_bloc = list(np.random.choice(blocs, size=1, p=bloc_dist))[0]
+                    cand_bloc = list(np.random.choice(blocs_to_sample, size=1, p=bloc_dist))[0]
                     ballot_type.append(cand_bloc)
 
                 ranking = []
@@ -1658,7 +1662,7 @@ class modified_Approval(BallotGenerator):
         
         pp_by_bloc = {}
 
-        for bloc in blocs:
+        for i,bloc in enumerate(blocs):
             ballot_pool = []
             # number of voters in this bloc
             num_ballots = ballots_per_block[bloc]
@@ -1666,6 +1670,8 @@ class modified_Approval(BallotGenerator):
 
             # TODO assumes one bloc
             bloc_dist = [self.cohesion_parameters[bloc], 1-self.cohesion_parameters[bloc]]
+            opposing_bloc = blocs[(i+1)%2]
+            blocs_to_sample = [bloc, opposing_bloc]
 
             for _ in range(num_ballots):
 
@@ -1673,7 +1679,7 @@ class modified_Approval(BallotGenerator):
                 ballot_type = []
                 for j in range(len(self.candidates)):
                     # choose a bloc as the next slot in the ballot
-                    cand_bloc = list(np.random.choice(blocs, size=1, p=bloc_dist))[0]
+                    cand_bloc = list(np.random.choice(blocs_to_sample, size=1, p=bloc_dist))[0]
                     ballot_type.append(cand_bloc)
 
                 ranking =  set()
