@@ -1847,3 +1847,194 @@ class DeliberativeVoter(BallotGenerator):
         # else return the combined profiles
         else:
             return pp
+
+
+class SP_Cumulative(BallotGenerator):
+    """
+    Class for generating cumulative ballots. This model first samples ballot types with
+    cohesion parameters. Then it samples with
+    replacement from a preference interval and counts candidates with multiplicity.
+    Can be initialized with an interval or can be constructed with the Dirichlet distribution
+    using the `from_params` method in the `BallotGenerator` class.
+
+    **Attributes**
+
+    `candidates`
+    : a list of candidates.
+
+    `pref_intervals_by_bloc`
+    :   dictionary mapping of bloc to preference interval.
+        (ex. {bloc: {candidate : interval length}}).
+
+    `bloc_voter_prop`
+    :   dictionary mapping of bloc to voter proportions (ex. {bloc: proportion}).
+
+    `num_votes`
+    : the number of votes allowed per ballot.
+
+    **Methods**
+
+    See `BallotGenerator` base class
+    """
+
+    def __init__(self, num_votes: int, **data):
+        # Call the parent class's __init__ method to handle common parameters
+        super().__init__(**data)
+        self.num_votes = num_votes
+
+    def generate_profile(
+        self, number_of_ballots: int, by_bloc: bool = False
+    ) -> Union[PreferenceProfile, Tuple]:
+        """
+        Args:
+        `number_of_ballots`: The number of ballots to generate.
+
+        `by_bloc`: True if you want to return a dictionary of PreferenceProfiles by bloc.
+                    False if you want the full, aggregated PreferenceProfile.
+        """
+        # the number of ballots per bloc is determined by Huntington-Hill apportionment
+        bloc_props = list(self.bloc_voter_prop.values())
+        ballots_per_block = dict(
+            zip(
+                self.blocs,
+                apportion.compute("huntington", bloc_props, number_of_ballots),
+            )
+        )
+
+        pref_profile_by_bloc = {b: PreferenceProfile() for b in self.blocs}
+
+        for curr_bloc in self.blocs:
+            # number of voters in this bloc
+            num_ballots = ballots_per_block[curr_bloc]
+            ballot_pool = [-1]*num_ballots
+            pref_interval_dict = self.pref_intervals_by_bloc[curr_bloc]
+
+            # sample ballot types
+            ballot_types = sample_cohesion_ballot_types(slate_to_candidates=self.slate_to_candidates,
+                                             num_ballots=num_ballots,
+                                             cohesion_parameters_for_bloc=self.cohesion_parameters[curr_bloc])
+            
+            for i, ballot_type in enumerate(ballot_types):
+                # for each bloc, count the number of times they appear in the ballot type
+                b_count = {b: ballot_type.count(b) for b in self.blocs}
+
+                # sample with replacement from that pref interval that many times
+                sampled_candidates = {b: list(np.random.choice(a = list(pref_interval_dict[b].interval.keys()),
+                                                              size = b_count[b],
+                                                              p = list(pref_interval_dict[b].interval.values()),
+                                                               replace=True))
+                                                               for b in self.blocs}
+                
+                # ranking is irr to cumulative
+                ranking = [{c} for c_list in sampled_candidates.values() for c in c_list]
+                ballot_pool[i] = Ballot(ranking=ranking, weight=Fraction(1, 1))
+
+            pp = PreferenceProfile(ballots=ballot_pool)
+            pp = pp.condense_ballots()
+            pref_profile_by_bloc[curr_bloc] = pp
+
+        # combine the profiles
+        pp = PreferenceProfile(ballots=[])
+        for profile in pref_profile_by_bloc.values():
+            pp += profile
+
+        if by_bloc:
+            return (pref_profile_by_bloc, pp)
+
+        # else return the combined profiles
+        else:
+            return pp
+
+
+class SP_Approval(BallotGenerator):
+    """
+    Class for generating approval ballots. Samples ballot types via cohesion, then samples
+    with replacement and no multiplicity to choose candidates.
+    Can be initialized with an interval or can be constructed with the Dirichlet distribution 
+    using the `from_params` method in the `BallotGenerator` class.
+
+    **Attributes**
+
+    `candidates`
+    : a list of candidates.
+
+    `pref_interval_by_bloc`
+    :   dictionary mapping of bloc to preference interval.
+        (ex. {bloc: {candidate : interval length}}).
+
+    `bloc_voter_prop`
+    :   dictionary mapping of bloc to voter proportions (ex. {bloc: proportion}).
+
+
+    **Methods**
+
+    See `BallotGenerator` base class
+    """
+
+    def __init__(self, slate_to_candidates: dict, cohesion_parameters: dict, **data):
+        # Call the parent class's __init__ method to handle common parameters
+        super().__init__(**data)
+        self.slate_to_candidates = slate_to_candidates
+        self.cohesion_parameters = cohesion_parameters
+
+
+    def generate_profile(self, number_of_ballots, by_bloc: bool = False) -> Union[PreferenceProfile,
+                                                                                  dict]:
+        """
+        Args:
+        `number_of_ballots`: The number of ballots to generate.
+
+        `by_bloc`: True if you want to return a dictionary of PreferenceProfiles by bloc.
+                    False if you want the full, aggregated PreferenceProfile.
+        """
+        # the number of ballots per bloc is determined by Huntington-Hill apportionment
+        blocs = list(self.bloc_voter_prop.keys())
+        bloc_props = list(self.bloc_voter_prop.values())
+        ballots_per_block = dict(
+            zip(blocs, apportion.compute("huntington", bloc_props, number_of_ballots))
+        )
+        
+        pref_profile_by_bloc = {}
+
+        for curr_bloc in blocs:
+            # number of voters in this bloc
+            num_ballots = ballots_per_block[curr_bloc]
+            ballot_pool = [-1]*num_ballots
+            pref_interval_dict = self.pref_intervals_by_bloc[curr_bloc]
+
+            # sample ballot types
+            ballot_types = sample_cohesion_ballot_types(slate_to_candidates=self.slate_to_candidates,
+                                             num_ballots=num_ballots,
+                                             cohesion_parameters_for_bloc=self.cohesion_parameters[curr_bloc])
+            
+            for i, ballot_type in enumerate(ballot_types):
+                # for each bloc, count the number of times they appear in the ballot type
+                b_count = {b: ballot_type.count(b) for b in blocs}
+
+                # sample with replacement from that pref interval that many times
+                # take the set of the resulting candidates (removing multiplicity)
+                sampled_candidates = {b: set(np.random.choice(a = list(pref_interval_dict[b].interval.keys()),
+                                                              size = b_count[b],
+                                                              p = list(pref_interval_dict[b].interval.values()),
+                                                               replace=True))
+                                                               for b in blocs}
+                
+                # return them as all tied for first place 
+                ranking = set().update(sampled_candidates.values())
+                ballot_pool[i] = Ballot(ranking=[ranking], weight=Fraction(1, 1))
+
+            pp = PreferenceProfile(ballots=ballot_pool)
+            pp = pp.condense_ballots()
+            pref_profile_by_bloc[curr_bloc] = pp
+
+        # combine the profiles
+        pp = PreferenceProfile(ballots=[])
+        for profile in pref_profile_by_bloc.values():
+            pp += profile
+
+        if by_bloc:
+            return (pref_profile_by_bloc, pp)
+
+        # else return the combined profiles
+        else:
+            return pp
