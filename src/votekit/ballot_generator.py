@@ -195,6 +195,8 @@ class BallotGenerator:
             cls == AlternatingCrossover
             or cls == SlatePreference
             or cls == DeliberativeVoter
+            or cls == SP_Approval
+            or cls == SP_Cumulative
         ):
             generator = cls(
                 slate_to_candidates=slate_to_candidates,
@@ -1877,10 +1879,12 @@ class SP_Cumulative(BallotGenerator):
     See `BallotGenerator` base class
     """
 
-    def __init__(self, num_votes: int, **data):
+    def __init__(self, slate_to_candidates:dict, cohesion_parameters:dict, num_votes: int, **data):
         # Call the parent class's __init__ method to handle common parameters
         super().__init__(**data)
         self.num_votes = num_votes
+        self.slate_to_candidates = slate_to_candidates
+        self.cohesion_parameters = cohesion_parameters
 
     def generate_profile(
         self, number_of_ballots: int, by_bloc: bool = False
@@ -1916,7 +1920,8 @@ class SP_Cumulative(BallotGenerator):
             
             for i, ballot_type in enumerate(ballot_types):
                 # for each bloc, count the number of times they appear in the ballot type
-                b_count = {b: ballot_type.count(b) for b in self.blocs}
+                # only count up to the number of allowed votes
+                b_count = {b: ballot_type[:self.num_votes].count(b) for b in self.blocs}
 
                 # sample with replacement from that pref interval that many times
                 sampled_candidates = {b: list(np.random.choice(a = list(pref_interval_dict[b].interval.keys()),
@@ -2020,7 +2025,7 @@ class SP_Approval(BallotGenerator):
                                                                for b in blocs}
                 
                 # return them as all tied for first place 
-                ranking = set().update(sampled_candidates.values())
+                ranking = set().union(*sampled_candidates.values())
                 ballot_pool[i] = Ballot(ranking=[ranking], weight=Fraction(1, 1))
 
             pp = PreferenceProfile(ballots=ballot_pool)
