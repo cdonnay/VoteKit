@@ -197,6 +197,7 @@ class BallotGenerator:
             or cls == DeliberativeVoter
             or cls == SP_Approval
             or cls == SP_Cumulative
+            or cls == Approval
         ):
             generator = cls(
                 slate_to_candidates=slate_to_candidates,
@@ -2027,6 +2028,101 @@ class SP_Approval(BallotGenerator):
                 # return them as all tied for first place 
                 ranking = set().union(*sampled_candidates.values())
                 ballot_pool[i] = Ballot(ranking=[ranking], weight=Fraction(1, 1))
+
+            pp = PreferenceProfile(ballots=ballot_pool)
+            pp = pp.condense_ballots()
+            pref_profile_by_bloc[curr_bloc] = pp
+
+        # combine the profiles
+        pp = PreferenceProfile(ballots=[])
+        for profile in pref_profile_by_bloc.values():
+            pp += profile
+
+        if by_bloc:
+            return (pref_profile_by_bloc, pp)
+
+        # else return the combined profiles
+        else:
+            return pp
+        
+class Approval(BallotGenerator):
+    """
+    Class for generating approval ballots. Samples ballots by sampling with replacement from combined
+    preference interval.
+    Can be initialized with an interval or can be constructed with the Dirichlet distribution 
+    using the `from_params` method in the `BallotGenerator` class.
+
+    **Attributes**
+
+    `candidates`
+    : a list of candidates.
+
+    `pref_interval_by_bloc`
+    :   dictionary mapping of bloc to preference interval.
+        (ex. {bloc: {candidate : interval length}}).
+
+    `bloc_voter_prop`
+    :   dictionary mapping of bloc to voter proportions (ex. {bloc: proportion}).
+
+
+    **Methods**
+
+    See `BallotGenerator` base class
+    """
+
+    def __init__(self, slate_to_candidates: dict, cohesion_parameters: dict, **data):
+        # Call the parent class's __init__ method to handle common parameters
+        super().__init__(**data)
+        self.slate_to_candidates = slate_to_candidates
+        self.cohesion_parameters = cohesion_parameters
+
+        # if dictionary of pref intervals
+        if isinstance(
+            list(self.pref_intervals_by_bloc.values())[0], PreferenceInterval
+        ):
+            self.pref_interval_by_bloc = self.pref_intervals_by_bloc
+
+        # if nested dictionary of pref intervals, combine by cohesion
+        else:
+            self.pref_interval_by_bloc = {
+                bloc: combine_preference_intervals(
+                    [self.pref_intervals_by_bloc[bloc][b] for b in self.blocs],
+                    [self.cohesion_parameters[bloc][b] for b in self.blocs],
+                )
+                for bloc in self.blocs
+            }
+
+
+    def generate_profile(self, number_of_ballots, by_bloc: bool = False) -> Union[PreferenceProfile,
+                                                                                  dict]:
+        """
+        Args:
+        `number_of_ballots`: The number of ballots to generate.
+
+        `by_bloc`: True if you want to return a dictionary of PreferenceProfiles by bloc.
+                    False if you want the full, aggregated PreferenceProfile.
+        """
+        # the number of ballots per bloc is determined by Huntington-Hill apportionment
+        blocs = list(self.bloc_voter_prop.keys())
+        bloc_props = list(self.bloc_voter_prop.values())
+        ballots_per_block = dict(
+            zip(blocs, apportion.compute("huntington", bloc_props, number_of_ballots))
+        )
+        
+        pref_profile_by_bloc = {}
+
+        for curr_bloc in blocs:
+            # number of voters in this bloc
+            num_ballots = ballots_per_block[curr_bloc]
+            ballot_pool = [-1]*num_ballots
+            
+            for i in range(num_ballots):
+                sampled_candidates = set(np.random.choice(a = list(self.pref_interval_by_bloc[curr_bloc].interval.keys()),
+                                                              size = len(self.candidates),
+                                                              p = list(self.pref_interval_by_bloc[curr_bloc].interval.values()),
+                                                               replace=True))
+                # all tied for first
+                ballot_pool[i] = Ballot(ranking=[sampled_candidates], weight=Fraction(1, 1))
 
             pp = PreferenceProfile(ballots=ballot_pool)
             pp = pp.condense_ballots()
