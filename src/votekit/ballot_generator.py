@@ -937,9 +937,9 @@ class name_BradleyTerry(BallotGenerator):
             non_zero_cands = pref_interval.non_zero_cands
             zero_cands = pref_interval.zero_cands
 
-            seed_ballot = Ballot(
-                ranking=tuple([frozenset({c}) for c in non_zero_cands])
-            )
+            seed_ranking = [frozenset({c}) for c in non_zero_cands]
+            random.shuffle(seed_ranking)  # shuffle the seed
+            seed_ballot = Ballot(ranking=tuple(seed_ranking))
             pp = self._BT_mcmc(
                 num_ballots,
                 pref_interval_dict,
@@ -1693,7 +1693,7 @@ class slate_BradleyTerry(BallotGenerator):
                               passed {len(self.slate_to_candidates.keys())}"
             )
 
-        if len(self.candidates) < 12 and len(self.blocs) == 2:
+        if len(self.candidates) < 13 and len(self.blocs) == 2:
             # precompute pdfs for sampling
             self.ballot_type_pdf = {
                 b: self._compute_ballot_type_dist(b, self.blocs[(i + 1) % 2])
@@ -1783,6 +1783,9 @@ class slate_BradleyTerry(BallotGenerator):
             for b in self.blocs
             for _ in range(len(self.pref_intervals_by_bloc[bloc][b].non_zero_cands))
         ]
+
+        # initial seed is randomly shuffled
+        random.shuffle(seed_ballot_type)
 
         ballots = [[-1]] * num_ballots
         accept = 0
