@@ -1715,7 +1715,7 @@ class slate_BradleyTerry(BallotGenerator):
 
         else:
             warnings.warn(
-                "For 12 or more candidates, exact sampling is computationally infeasible. \
+                "For 13 or more candidates, exact sampling is computationally infeasible. \
                     Please set deterministic = False when calling generate_profile."
             )
 
