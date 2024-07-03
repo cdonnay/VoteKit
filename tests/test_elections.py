@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from votekit.ballot import Ballot
-from votekit.cvr_loaders import load_blt, load_csv  # type:ignore
+from votekit.cvr_loaders import load_scottish, load_csv  # type:ignore
 from votekit.elections.election_types import STV, SequentialRCV
 from votekit.elections.transfers import fractional_transfer, random_transfer
 from votekit.pref_profile import PreferenceProfile
@@ -15,7 +15,6 @@ from votekit.utils import (
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data/csv/"
-BLT_DIR = BASE_DIR / "data/txt/"
 
 
 test_profile = load_csv(DATA_DIR / "test_election_A.csv")
@@ -23,42 +22,46 @@ mn_profile = load_csv("src/votekit/data/mn_2013_cast_vote_record.csv")
 
 
 def test_droop_default_parameter():
-
-    pp, seats = load_blt(BLT_DIR / "edinburgh17-01_abridged.blt")
+    pp, seats, cand_list, cand_to_party, ward = load_scottish(
+        DATA_DIR / "scot_wardy_mc_ward.csv"
+    )
 
     election = STV(pp, fractional_transfer, seats=seats)
 
-    droop_quota = int((8 + 14 + 1 + 13 + 1 + 1 + 2) / (4 + 1)) + 1
+    droop_quota = int((126 + 9 + 10 + 1) / (1 + 1)) + 1
 
     assert election.threshold == droop_quota
 
 
 def test_droop_inputed_parameter():
-
-    pp, seats = load_blt(BLT_DIR / "edinburgh17-01_abridged.blt")
+    pp, seats, cand_list, cand_to_party, ward = load_scottish(
+        DATA_DIR / "scot_wardy_mc_ward.csv"
+    )
 
     election = STV(pp, fractional_transfer, seats=seats, quota="Droop")
 
-    droop_quota = int((8 + 14 + 1 + 13 + 1 + 1 + 2) / (4 + 1)) + 1
+    droop_quota = int((126 + 9 + 10 + 1) / (1 + 1)) + 1
 
     assert election.threshold == droop_quota
 
 
 def test_quota_misspelled_parameter():
-
-    pp, seats = load_blt(BLT_DIR / "edinburgh17-01_abridged.blt")
+    pp, seats, cand_list, cand_to_party, ward = load_scottish(
+        DATA_DIR / "scot_wardy_mc_ward.csv"
+    )
 
     with pytest.raises(ValueError):
         _ = STV(pp, fractional_transfer, seats=seats, quota="droops")
 
 
 def test_hare_quota():
-
-    pp, seats = load_blt(BLT_DIR / "edinburgh17-01_abridged.blt")
+    pp, seats, cand_list, cand_to_party, ward = load_scottish(
+        DATA_DIR / "scot_wardy_mc_ward.csv"
+    )
 
     election = STV(pp, fractional_transfer, seats=seats, quota="hare")
 
-    hare_quota = int((8 + 14 + 1 + 13 + 1 + 1 + 2) / 4)
+    hare_quota = int((126 + 9 + 10 + 1) / 1)
 
     assert election.threshold == hare_quota
 
@@ -67,7 +70,7 @@ def test_max_votes_toy():
     max_cand = "a"
     cands = test_profile.get_candidates()
     ballots = test_profile.get_ballots()
-    results = {cand: votes for cand, votes in compute_votes(cands, ballots)}
+    _, results = compute_votes(cands, ballots)
     max_votes = [
         candidate
         for candidate, votes in results.items()
@@ -81,7 +84,7 @@ def test_min_votes_mn():
     min_cand = "JOHN CHARLES WILSON"
     cands = mn_profile.get_candidates()
     ballots = mn_profile.get_ballots()
-    results = {cand: votes for cand, votes in compute_votes(cands, ballots)}
+    _, results = compute_votes(cands, ballots)
     max_votes = [
         candidate
         for candidate, votes in results.items()
@@ -124,7 +127,7 @@ def test_stv_winner_mn():
     irv = STV(mn_profile, fractional_transfer, 3, ballot_ties=False)
     outcome = irv.run_election()
     winners = [{"BETSY HODGES"}, {"MARK ANDREW"}, {"DON SAMUELS"}]
-    assert winners == outcome.get_all_winners()
+    assert winners == outcome.winners()
 
 
 def test_runstep_seats_full_at_start():
@@ -146,7 +149,7 @@ def test_rand_transfer_func_mock_data():
         winner=winner, ballots=ballots, votes=votes, threshold=threshold
     )
 
-    counts = compute_votes(candidates=["B", "C"], ballots=ballots_after_transfer)
+    counts, _ = compute_votes(candidates=["B", "C"], ballots=ballots_after_transfer)
 
     assert counts[0].votes == Fraction(1) or counts[0].votes == Fraction(2)
 
@@ -163,7 +166,7 @@ def test_rand_transfer_assert():
     ballots_after_transfer = random_transfer(
         winner=winner, ballots=ballots, votes=votes, threshold=threshold
     )
-    counts = compute_votes(candidates=["B", "C"], ballots=ballots_after_transfer)
+    counts, _ = compute_votes(candidates=["B", "C"], ballots=ballots_after_transfer)
 
     assert 400 < counts[0].votes < 600
 
@@ -186,5 +189,5 @@ def test_toy_rcv():
     ]
     toy_pp = PreferenceProfile(ballots=ballot_list)
     seq_RCV = SequentialRCV(profile=toy_pp, seats=2, ballot_ties=False)
-    toy_winners = seq_RCV.run_election().get_all_winners()
+    toy_winners = seq_RCV.run_election().winners()
     assert known_winners == toy_winners

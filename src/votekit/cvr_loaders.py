@@ -1,5 +1,6 @@
 from fractions import Fraction
 import os
+import csv
 import pandas as pd
 from pandas.errors import EmptyDataError, DataError
 import pathlib
@@ -18,27 +19,28 @@ def load_csv(
     id_col: Optional[int] = None,
 ) -> PreferenceProfile:
     """
-    Given a file path, loads cast vote records (cvr) with ranks as columns and voters as rows
-    (empty cells are treated as None)
+    Given a file path, loads cast vote record (cvr) with ranks as columns and voters as rows.
+    Empty cells are treated as None.
 
     Args:
-        fpath: Path to cvr file
-        rank_cols: list of column indexes that contain rankings, indexing starts from 0,
-                    in order from top to bottom rank.
-                    Default implies that all columns contain rankings.
-        weight_col: The column position for ballot weights
-            if parsing Scottish elections like cvrs
-        delimiter: The character that breaks up rows
-        id_col: Index for the column with voter ids
+        fpath (str): Path to cvr file.
+        rank_cols (list[int]): List of column indexes that contain rankings. Indexing starts from 0,
+            in order from top to bottom rank. Default is empty list, which implies that all columns
+            contain rankings.
+        weight_col (int, optional): The column position for ballot weights. Defaults to None, which
+            implies each row has weight 1.
+        delimiter (str, optional): The character that breaks up rows. Defaults to None, which
+            implies a carriage return.
+        id_col (int, optional): Index for the column with voter ids. Defaults to None.
 
     Raises:
-        FileNotFoundError: If fpath is invalid
-        EmptyDataError: If dataset is empty
-        ValueError: If the voter id column has missing values
-        DataError: If the voter id column has duplicate values
+        FileNotFoundError: If fpath is invalid.
+        EmptyDataError: If dataset is empty.
+        ValueError: If the voter id column has missing values.
+        DataError: If the voter id column has duplicate values.
 
     Returns:
-        A preference profile that represents all the ballots in the election
+        PreferenceProfile: A ``PreferenceProfile`` that represents all the ballots in the election.
     """
     if not os.path.isfile(fpath):
         raise FileNotFoundError(f"File with path {fpath} cannot be found")
@@ -61,7 +63,7 @@ def load_csv(
 
     if rank_cols:
         if id_col is not None:
-            df = df.iloc[:, rank_cols+[id_col]]
+            df = df.iloc[:, rank_cols + [id_col]]
         else:
             df = df.iloc[:, rank_cols]
 
@@ -72,99 +74,110 @@ def load_csv(
     ballots = []
 
     for group, group_df in grouped:
-        ranking = [{None} if pd.isnull(c) else {c} for c in group]
+        ranking = tuple(
+            [frozenset({None}) if pd.isnull(c) else frozenset({c}) for c in group]
+        )
 
-
-        voters = None
+        voter_set = None
         if id_col is not None:
-            voters = set(group_df.iloc[:, id_col])
+            voter_set = set(group_df.iloc[:, id_col])
         weight = len(group_df)
         if weight_col is not None:
             weight = sum(group_df.iloc[:, weight_col])
-        b = Ballot(ranking=ranking, weight=Fraction(weight), voters=voters)
+        b = Ballot(ranking=ranking, weight=Fraction(weight), voter_set=voter_set)
         ballots.append(b)
 
     return PreferenceProfile(ballots=ballots)
 
 
-def load_blt(fpath: str) -> tuple[PreferenceProfile, int]:
+def load_scottish(
+    fpath: str,
+) -> tuple[PreferenceProfile, int, list[str], dict[str, str], str]:
     """
-    Given a blt file path, loads cvr (blt is text-like format used for scottish election data)
+    Given a file path, loads cast vote record from format used for Scottish election data
+    in (this repo)[https://github.com/mggg/scot-elex].
 
     Args:
-        fpath: Path to cvr file
+        fpath (str): Path to Scottish election csv file.
 
     Raises:
-        FileNotFoundError: If fpath is invalid
-        EmptyDataError: If dataset is empty
-        DataError: If there is missing or incorrect metadata or candidate data
+        FileNotFoundError: If fpath is invalid.
+        EmptyDataError: If dataset is empty.
+        DataError: If there is missing or incorrect metadata or candidate data.
 
     Returns:
-        A preference schedule representing all the ballots in the elction
-        Number of seats in the election
+        tuple: A tuple ``(PreferenceProfile, seats, cand_list, cand_to_party, ward)``
+            representing the election, the number of seats in the election, the candidate
+            names, a dictionary mapping candidates to their party, and the ward. The
+            candidate names are also stored in the PreferenceProfile object.
     """
-    ballots = []
-    names = []
-    name_map = {}
-    numbers = True
-    cands_included = False
 
     if not os.path.isfile(fpath):
         raise FileNotFoundError(f"File with path {fpath} cannot be found")
     if os.path.getsize(fpath) == 0:
-        raise EmptyDataError("Dataset cannot be empty")
+        raise EmptyDataError(f"CSV at {fpath} is empty.")
 
-    with open(fpath, "r") as file:
-        for i, line in enumerate(file):
-            s = line.rstrip("\n").rstrip()
-            if i == 0:
-                # first number is number of candidates, second is number of seats to elect
-                metadata = [int(data) for data in s.split(" ")]
-                if len(metadata) != 2:
-                    raise DataError(
-                        "metadata (first line) should have two parameters"
-                        " (number of candidates, number of seats)"
-                    )
-                seats = metadata[1]
-            # read in ballots, cleaning out rankings labeled '0' (designating end of line)
-            elif numbers:
-                ballot = [int(vote) for vote in s.split(" ")]
-                num_votes = ballot[0]
-                # ballots terminate with a single row with the character '0'
-                if num_votes == 0:
-                    numbers = False
-                else:
-                    ranking = [rank for rank in list(ballot[1:]) if rank != 0]
-                    b = (ranking, num_votes)
-                    ballots.append(b)  # this is converted to the PP format later
-            # read in candidates
-            elif "(" in s:
-                cands_included = True
-                name_parts = s.strip('"').split(" ")
-                first_name = " ".join(name_parts[:-2])
-                last_name = name_parts[-2]
-                party = name_parts[-1].strip("(").strip(")")
-                names.append(str((first_name, last_name, party)))
-            else:
-                if len(names) != metadata[0]:
-                    err_message = (
-                        f"Number of candidates listed, {len(names)}," + f" differs from"
-                        f"number of candidates recorded in metadata, {metadata[0]}"
-                    )
-                    raise DataError(err_message)
-                # read in election location (do we need this?)
-                # location = s.strip("\"")
-                if not cands_included:
-                    raise DataError("Candidates missing from file")
-                # map candidate numbers onto their names and convert ballots to PP format
-                for i, name in enumerate(names):
-                    name_map[i + 1] = name
-                clean_ballots = [
-                    Ballot(
-                        ranking=[{name_map[cand]} for cand in ballot[0]],
-                        weight=Fraction(ballot[1]),
-                    )
-                    for ballot in ballots
-                ]
+    # Convert the ballot rows to ints while leaving the candidates as strings
+    def convert_row(row):
+        return [int(item) if item.isdigit() else item for item in row]
 
-        return PreferenceProfile(ballots=clean_ballots, candidates=names), seats
+    data = []
+    with open(fpath, "r") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            # This just removes any empty strings that are hanging out since
+            # we don't need to preserve columns
+            filtered_row = list(filter(lambda x: x != "", row))
+
+            # only save non-empty rows
+            if len(filtered_row) > 0:
+                data.append(convert_row(filtered_row))
+
+    if len(data[0]) != 2:
+        raise DataError(
+            "The metadata in the first row should be number of \
+                            candidates, seats."
+        )
+
+    cand_num, seats = data[0][0], data[0][1]
+    ward = data[-1][0]
+
+    num_to_cand = {}
+    cand_to_party = {}
+
+    data_cand_num = len([r for r in data if "Candidate" in str(r[0])])
+    if data_cand_num != cand_num:
+        raise DataError(
+            "Incorrect number of candidates in either first row metadata \
+                        or in candidate list at end of csv file."
+        )
+
+    # record candidate names, which are up until the final row
+    for i, line in enumerate(data[len(data) - (cand_num + 1) : -1]):
+        if "Candidate" not in line[0]:
+            raise DataError(
+                f"The number of candidates on line 1 is {cand_num}, which\
+                            does not match the metadata."
+            )
+        cand = line[1]
+        party = line[2]
+
+        # candidates are 1 indexed
+        num_to_cand[i + 1] = cand
+        cand_to_party[cand] = party
+
+    cand_list = list(cand_to_party.keys())
+
+    ballots = [Ballot()] * len(data[1 : len(data) - (cand_num + 1)])
+
+    for i, line in enumerate(data[1 : len(data) - (cand_num + 1)]):
+        ballot_weight = Fraction(line[0])
+        cand_ordering = line[1:]
+        ranking = tuple([frozenset({num_to_cand[n]}) for n in cand_ordering])
+
+        ballots[i] = Ballot(ranking=ranking, weight=ballot_weight)
+
+    profile = PreferenceProfile(
+        ballots=ballots, candidates=cand_list
+    ).condense_ballots()
+    return (profile, seats, cand_list, cand_to_party, ward)

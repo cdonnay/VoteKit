@@ -4,10 +4,10 @@ import numpy as np
 from typing import Union, Iterable, Optional, Any
 from itertools import permutations
 import math
+import warnings
 
 from .ballot import Ballot
 from .pref_profile import PreferenceProfile
-
 
 COLOR_LIST = [
     (0.55, 0.71, 0.0),
@@ -30,16 +30,49 @@ COLOR_LIST = [
 CandidateVotes = namedtuple("CandidateVotes", ["cand", "votes"])
 
 
-def compute_votes(candidates: list, ballots: list[Ballot]) -> list[CandidateVotes]:
+def ballots_by_first_cand(candidates: list[str], ballots: list[Ballot]) -> dict:
     """
-    Computes first place votes for all candidates in a preference profile
+    Partitions the ballots by first place candidate.
 
     Args:
-        candidates: List of all candidates in a PreferenceProfile
-        ballots: List of Ballot objects
+        candidates (list[str]): A list of candidate strings.
+        ballots (list[Ballot]): A list of ballots.
 
     Returns:
-        List of tuples (candidate, number of votes) ordered by first place votes
+        dict: A dictionary whose keys are candidates and values are lists of ballots that
+            have that candidate first.
+    """
+    cand_dict = {c: [] for c in candidates}  # type: dict
+
+    for b in ballots:
+        if b.ranking:
+            # find first place candidate, ensure there is only one
+            first_cand = list(b.ranking[0])
+            if len(first_cand) > 1:
+                raise ValueError(f"Ballot {b} has a tie for first.")
+            else:
+                first_cand = first_cand[0]
+
+            cand_dict[first_cand].append(b)
+
+    return cand_dict
+
+
+def compute_votes(
+    candidates: list[str],
+    ballots: list[Ballot],
+) -> tuple[list[CandidateVotes], dict]:
+    """
+    Computes first place votes for all candidates in a ``PreferenceProfile``.
+
+    Args:
+        candidates (list[str]): List of all candidates in a ``PreferenceProfile``.
+        ballots (list[Ballot]): List of Ballot objects.
+
+    Returns:
+        tuple: A tuple (ordered, votes) where ordered is a list of tuples (cand, first place votes)
+            ordered by decreasing first place votes and votes is a dictionary whose keys are
+            candidates and values are first place votes.
     """
     votes = {cand: Fraction(0) for cand in candidates}
 
@@ -58,19 +91,19 @@ def compute_votes(candidates: list, ballots: list[Ballot]) -> list[CandidateVote
         for key, value in sorted(votes.items(), key=lambda x: x[1], reverse=True)
     ]
 
-    return ordered
+    return ordered, votes
 
 
 def remove_cand(removed: Union[str, Iterable], ballots: list[Ballot]) -> list[Ballot]:
     """
-    Removes specified candidate(s) from ballots
+    Removes specified candidate(s) from ballots.
 
     Args:
-        removed: Candidate or set of candidates to be removed
-        ballots: List of Ballots to remove canidate(s) from
+        removed (Union[str, Iterable]): Candidate or group of candidates to be removed.
+        ballots (list[Ballot]): List of ballots to remove candidate(s) from.
 
     Returns:
-        Updated list of ballots with candidate(s) removed
+        list[Ballot]: Updated list of ballots with candidate(s) removed.
     """
 
     if isinstance(removed, str):
@@ -89,9 +122,9 @@ def remove_cand(removed: Union[str, Iterable], ballots: list[Ballot]) -> list[Ba
             update.append(
                 Ballot(
                     id=ballot.id,
-                    ranking=new_ranking,
+                    ranking=tuple(new_ranking),
                     weight=ballot.weight,
-                    voters=ballot.voters,
+                    voter_set=ballot.voter_set,
                 )
             )
         elif len(remove_set) > 1:
@@ -102,9 +135,9 @@ def remove_cand(removed: Union[str, Iterable], ballots: list[Ballot]) -> list[Ba
             update.append(
                 Ballot(
                     id=ballot.id,
-                    ranking=new_ranking,
+                    ranking=tuple(new_ranking),
                     weight=ballot.weight,
-                    voters=ballot.voters,
+                    voter_set=ballot.voter_set,
                 )
             )
         else:
@@ -114,31 +147,39 @@ def remove_cand(removed: Union[str, Iterable], ballots: list[Ballot]) -> list[Ba
 
 
 # Summmary Stat functions
-def first_place_votes(profile: PreferenceProfile) -> dict:
+def first_place_votes(profile: PreferenceProfile, to_float: bool = False) -> dict:
     """
-    Calculates first-place votes for a PreferenceProfile
+    Calculates first-place votes for a ``PreferenceProfile``.
 
     Args:
-        profile: Inputed profile of ballots
+        profile (PreferenceProfile): Inputed PreferenceProfile of ballots.
+        to_float (bool): If True, compute first place votes as floats instead of Fractions.
+            Defaults to False.
 
     Returns:
-        Dictionary of candidates (keys) and first place vote totals (values)
+        dict: Dictionary of candidates (keys) and first place vote totals (values).
     """
     cands = profile.get_candidates()
     ballots = profile.get_ballots()
 
-    return {cand: float(votes) for cand, votes in compute_votes(cands, ballots)}
+    _, votes_dict = compute_votes(cands, ballots)
+
+    if to_float:
+        votes_dict = {k: float(v) for k, v in votes_dict.items()}
+        return votes_dict
+    else:
+        return votes_dict
 
 
 def mentions(profile: PreferenceProfile) -> dict:
     """
-    Calculates total mentions for a PreferenceProfile
+    Calculates total mentions for a ``PreferenceProfile``.
 
     Args:
-        profile: Inputed profile of ballots
+        profile (PreferenceProfile): Inputed PreferenceProfile of ballots.
 
     Returns:
-        Dictionary of candidates (keys) and mention totals (values)
+        dict: Dictionary of candidates (keys) and mention totals (values).
     """
     mentions: dict[str, float] = {}
 
@@ -164,17 +205,17 @@ def borda_scores(
     score_vector: Optional[list] = None,
 ) -> dict:
     """
-    Calculates Borda scores for a PreferenceProfile
+    Calculates Borda scores for a ``PreferenceProfile``.
 
     Args:
-        profile: Inputed profile of ballots
-        ballot_length: Length of a ballot, if None length of longest ballot is
-            used
-        score_vector: Borda weights, if None assigned based length of the
-            longest ballot
+        profile (PreferenceProfile): ``PreferenceProfile`` of ballots.
+        ballot_length (int, optional): Length of a ballot. If None, length of longest ballot is
+            used. Defaults to None.
+        score_vector (list, optional): List of Borda weights. If None, vector is assigned
+            :math:`(n,n-1,\dots,1)`. Defaults to None.
 
     Returns:
-        Dictionary of candidates (keys) and Borda scores (values)
+        dict: Dictionary of candidates (keys) and Borda scores (values).
     """
     candidates = profile.get_candidates()
     if ballot_length is None:
@@ -210,15 +251,15 @@ def borda_scores(
     return candidate_borda
 
 
-def unset(input_set: set) -> Any:
+def unset(input_set: Union[set, frozenset]) -> Any:
     """
-    Removes object from set
+    Removes object from set or frozenset.
 
     Args:
-        input_set: Input set
+        input_set (Union[set, frozenset]): Input (frozen)set.
 
     Returns:
-        If set has length one returns the object, else returns a list
+        Any: If (frozen)set has length one, return the object. Else return a list.
     """
     rv = list(input_set)
 
@@ -231,13 +272,13 @@ def unset(input_set: set) -> Any:
 def candidate_position_dict(ranking: list[set[str]]) -> dict:
     """
     Creates a dictionary with the integer ranking of candidates given a set ranking
-    i.e. A > B, C > D returns {A: 1, B: 2, C: 2, D: 4}
+    i.e. A > {B, C} > D returns {A: 1, B: 2, C: 2, D: 4}.
 
     Args:
-        ranking: A list-of-set ranking of candidates
+        ranking (list[set[str]]): A list-of-sets ranking of candidates.
 
     Returns:
-        Dictionary of candidates (keys) and integer rankings (values)
+        dict: Dictionary of candidates (keys) and integer rankings (values).
     """
     candidate_positions = {}
     position = 0
@@ -254,16 +295,17 @@ def tie_broken_ranking(
     ranking: list[set[str]], profile: PreferenceProfile, tiebreak: str = "none"
 ) -> list[set[str]]:
     """
-    Breaks ties in a list-of-sets ranking according to a given scheme
+    Breaks ties in a list-of-sets ranking according to a given scheme.
 
     Args:
-        ranking: A list-of-set ranking of candidates
-        profile: The election ballot profile
-        tiebreak: Method of tiebreak, currently supports 'none', 'random', 'borda', 'firstplace'
+        ranking (list[set[str]]): A list-of-set ranking of candidates.
+        profile (PreferenceProfile): PreferenceProfile.
+        tiebreak (str, optional): Method of tiebreak, currently supports 'none', 'random', 'borda',
+            'firstplace'. Defaults to 'none'.
 
     Returns:
-        A list-of-set ranking of candidates (tie broken down to one candidate sets unless
-            tiebreak = 'none')
+        list[set[str]]: A list-of-set ranking of candidates (broken down to one candidate sets
+        unless tiebreak = 'none').
     """
 
     new_ranking = []
@@ -299,14 +341,15 @@ def scores_into_set_list(
     score_dict: dict, candidate_subset: Union[list[str], set[str], None] = None
 ) -> list[set[str]]:
     """
-    Sorts candidates based on a scoring dictionary (i.e Borda, First-Place)
+    Sorts candidates based on a scoring dictionary (i.e. Borda, First-Place).
 
     Args:
-        score_dict: Dictionary between candidates (key) and their score (value)
-        candidate_subset: Relevant candidates to sort
+        score_dict (dict): Dictionary between candidates (key) and their score (value).
+        candidate_subset (Union[list[str], set[str], None], optional): Relevant candidates to sort.
+            Defaults to None.
 
     Returns:
-        Candidate rankings in a list-of-sets form
+        list[set[str]]: Candidate rankings in a list-of-sets form.
     """
     if isinstance(candidate_subset, list):
         candidate_subset = set(candidate_subset)
@@ -325,19 +368,80 @@ def scores_into_set_list(
     return tier_list
 
 
+def compute_scores_from_vector(
+    profile: PreferenceProfile, score_vector: list[float]
+) -> dict:
+    """
+    Computes the scores received by each candidate given the score vector and the profile.
+
+    Args:
+        profile (PreferenceProfile): ``PreferenceProfile`` to compute scores for.
+        score_vector (list[float]): List of floats where :math:`i`th position denotes points given
+            to candidates in position :math:`i`.
+
+    Returns:
+        dict: A dictionary whose keys are candidates and values are scores.
+    """
+    # check for valid score vector
+    validate_score_vector(score_vector)
+
+    candidates_to_scores = {c: 0.0 for c in profile.get_candidates()}
+
+    for ballot in profile.ballots:
+        for i, s in enumerate(ballot.ranking):
+            # for each candidate in position i, give them points as determined by score_vector
+            for c in s:
+                try:
+                    candidates_to_scores[c] += score_vector[i] * ballot.weight
+                except IndexError:
+                    warnings.warn(
+                        f"Tried to access index {i} of score vector,"
+                        f"but vector only length {len(score_vector)}. "
+                        "Assigned candidate 0 points.",
+                        UserWarning,
+                    )
+
+    return candidates_to_scores
+
+
+def validate_score_vector(score_vector: list[float]):
+    """
+    Validator function for score vectors. Vectors should be non-increasing and non-negative.
+
+    Args:
+        score_vector (list[float]): Score vector.
+
+    Raises:
+        ValueError: If any score is negative.
+        ValueError: If score vector is increasing at any point.
+
+    """
+
+    for i, score in enumerate(score_vector):
+        # if score is negative
+        if score < 0:
+            raise ValueError("Score vector must be non-negative.")
+
+        if i > 0:
+            # if the current score is bigger than prev
+            if score > score_vector[i - 1]:
+                raise ValueError("Score vector must be non-increasing.")
+
+
 def elect_cands_from_set_ranking(
     ranking: list[set[str]], seats: int
 ) -> tuple[list[set[str]], list[set[str]]]:
     """
     Splits a ranking into elected and eliminated based on seats,
-    and if a tie set overlaps the desired number of seats raises a ValueError
+    and if a tie set overlaps the desired number of seats raises a ValueError.
 
     Args:
-        ranking: A list-of-set ranking of candidates
-        seats: Number of seats to fill
+        ranking (list[set[str]]): A list-of-set ranking of candidates.
+        seats (int): Number of seats to fill.
 
     Returns:
-        A list-of-sets of elected candidates, a list-of-sets of eliminated candidates
+        tuple[list[set[str]], list[set[str]]]: A list-of-sets of elected candidates, a list-of-sets
+        of eliminated candidates.
     """
     cands_elected = 0
     elected = []
@@ -362,7 +466,14 @@ def elect_cands_from_set_ranking(
 # helper functions for Election base class
 def recursively_fix_ties(ballot_lst: list[Ballot], num_ties: int) -> list[Ballot]:
     """
-    Recursively fixes ties in a ballot in the case there is more then one tie
+    Recursively fixes ties in a ballot in the case there is more then one tie.
+
+    Args:
+        ballot_lst (list): List of Ballot objects.
+        num_ties (int):  Number of ties to resolve.
+
+    Returns:
+        list[Ballot]: A list of Ballots with ties resolved.
     """
     # base case, if only one tie to resolved return the list of already
     # resolved ballots
@@ -380,8 +491,14 @@ def recursively_fix_ties(ballot_lst: list[Ballot], num_ties: int) -> list[Ballot
 
 def fix_ties(ballot: Ballot) -> list[Ballot]:
     """
-    Helper function for recursively_fix_ties. Resolves the first appearing
-    tied rank in the input ballot by return list of permuted ballots
+    Helper function for ``recursively_fix_ties``. Resolves the first appearing
+    tied rank in the input ballot.
+
+    Args:
+        ballot (Ballot): A Ballot.
+
+    Returns:
+        list[Ballot]: List of Ballots that are permutations of the tied ballot.
     """
 
     ballots = []
@@ -390,15 +507,15 @@ def fix_ties(ballot: Ballot) -> list[Ballot]:
             for order in permutations(rank):
                 resolved = []
                 for cand in order:
-                    resolved.append(set(cand))
+                    resolved.append(frozenset(cand))
                 ballots.append(
                     Ballot(
                         id=ballot.id,
                         ranking=ballot.ranking[:idx]
-                        + resolved
+                        + tuple(resolved)
                         + ballot.ranking[idx + 1 :],
                         weight=ballot.weight / math.factorial(len(rank)),
-                        voters=ballot.voters,
+                        voter_set=ballot.voter_set,
                     )
                 )
 

@@ -26,7 +26,7 @@ pref_2 = PreferenceProfile(ballots=[Ballot(ranking=[{"A"}], weight=Fraction(274,
 round_0 = ElectionState(
     curr_round=0,
     elected=[],
-    eliminated=[],
+    eliminated_cands=[],
     remaining=[{"A", "B", "C"}],
     profile=pref_0,
     previous=None,
@@ -34,7 +34,7 @@ round_0 = ElectionState(
 round_1 = ElectionState(
     curr_round=1,
     elected=[],
-    eliminated=[{"C"}],
+    eliminated_cands=[{"C"}],
     remaining=[{"B", "A"}],
     profile=pref_1,
     previous=round_0,
@@ -42,7 +42,7 @@ round_1 = ElectionState(
 round_2 = ElectionState(
     curr_round=2,
     elected=[{"B"}],
-    eliminated=[],
+    eliminated_cands=[],
     remaining=[{"A"}],
     profile=pref_2,
     previous=round_1,
@@ -68,25 +68,18 @@ correct_status = pd.DataFrame(
 
 
 def test_get_attributes():
-
     for i in range(3):
         assert rounds[i].curr_round == rds[i]
         assert rounds[i].elected == elects[i]
-        assert rounds[i].eliminated == elims[i]
+        assert rounds[i].eliminated_cands == elims[i]
         assert rounds[i].remaining == remains[i]
-
-    # orig = Outcome(remaining=["A", "B", "C"])
-    # new = orig.add_winners_and_losers({"B"}, {"A"})
-    # assert new.elected == {"B"}
-    # assert new.eliminated == {"A"}
-    # assert new.remaining == {"C"}
 
 
 def test_lists():
     for i in range(3):
-        assert rounds[i].get_all_winners() == wins[i]
-        assert rounds[i].get_all_eliminated() == los[i]
-        assert rounds[i].get_rankings() == ranks[i]
+        assert rounds[i].winners() == wins[i]
+        assert rounds[i].eliminated() == los[i]
+        assert rounds[i].rankings() == ranks[i]
 
 
 def test_changed_rankings():
@@ -97,21 +90,21 @@ def test_get_all_winners():
     first = ElectionState(
         curr_round=1,
         elected=[{"A"}, {"B"}],
-        eliminated=[{"C"}],
+        eliminated_cands=[{"C"}],
         profile=MagicMock(spec=PreferenceProfile),
     )
     second = ElectionState(
         curr_round=2,
         elected=[{"D"}],
-        eliminated=[{"E"}],
+        eliminated_cands=[{"E"}],
         profile=MagicMock(spec=PreferenceProfile),
         previous=first,
     )
 
-    first_winners = first.get_all_winners()
+    first_winners = first.winners()
     assert first_winners == [{"A"}, {"B"}]
 
-    second_winners = second.get_all_winners()
+    second_winners = second.winners()
     assert second_winners == [{"A"}, {"B"}, {"D"}]
 
 
@@ -119,63 +112,67 @@ def test_round_previous():
     first = ElectionState(
         curr_round=1,
         elected=[{"A"}, {"B"}],
-        eliminated=[{"C"}],
+        eliminated_cands=[{"C"}],
         profile=MagicMock(spec=PreferenceProfile),
     )
     second = ElectionState(
         curr_round=2,
         elected=[{"D"}],
-        eliminated=[{"E"}],
+        eliminated_cands=[{"E"}],
         profile=MagicMock(spec=PreferenceProfile),
         previous=first,
     )
 
-    results = second.get_round_outcome(roundNum=1)
-    assert results == {"Elected": ["A", "B"], "Eliminated": ["C"]}
+    results = second.round_outcome(round=1)
+    assert results == {
+        "Elected": [{"A"}, {"B"}],
+        "Eliminated": [{"C"}],
+        "Remaining": [],
+    }
 
 
 def test_round_outcome_error():
     first = ElectionState(
         curr_round=1,
         elected=[{"A"}, {"B"}],
-        eliminated=[{"C"}],
+        eliminated_cands=[{"C"}],
         profile=MagicMock(spec=PreferenceProfile),
     )
 
     with pytest.raises(ValueError):
-        first.get_round_outcome(roundNum=4)
+        first.round_outcome(round=4)
 
 
 def test_elimination_order():
     first = ElectionState(
         curr_round=1,
         elected=[{"A"}, {"B"}],
-        eliminated=[{"C"}],
+        eliminated_cands=[{"C"}],
         profile=MagicMock(spec=PreferenceProfile),
     )
     second = ElectionState(
         curr_round=2,
         elected=[{"D"}],
-        eliminated=[{"E"}],
+        eliminated_cands=[{"E"}],
         profile=MagicMock(spec=PreferenceProfile),
         previous=first,
     )
     third = ElectionState(
         curr_round=3,
         elected=[{"A"}, {"B"}],
-        eliminated=[{"F"}],
+        eliminated_cands=[{"F"}],
         profile=MagicMock(spec=PreferenceProfile),
         previous=second,
     )
     fourth = ElectionState(
         curr_round=4,
         elected=[{"D"}],
-        eliminated=[{"G"}],
+        eliminated_cands=[{"G"}],
         profile=MagicMock(spec=PreferenceProfile),
         previous=third,
     )
 
-    elims = fourth.get_all_eliminated()
+    elims = fourth.eliminated()
     assert elims == [{"G"}, {"F"}, {"E"}, {"C"}]
 
 
@@ -183,18 +180,18 @@ def test_ranking_no_remaining():
     first = ElectionState(
         curr_round=1,
         elected=[{"A"}, {"B"}],
-        eliminated=[{"C"}],
+        eliminated_cands=[{"C"}],
         profile=MagicMock(spec=PreferenceProfile),
     )
     second = ElectionState(
         curr_round=2,
         elected=[{"D"}],
-        eliminated=[{"E"}],
+        eliminated_cands=[{"E"}],
         profile=MagicMock(spec=PreferenceProfile),
         previous=first,
     )
 
-    rank = second.get_rankings()
+    rank = second.rankings()
     assert rank == [{"A"}, {"B"}, {"D"}, {"E"}, {"C"}]
 
 
@@ -203,18 +200,18 @@ def test_ranking_w_remaing():
         curr_round=1,
         elected=[{"A"}, {"B"}],
         remaining=[{"F"}],
-        eliminated=[{"C"}],
+        eliminated_cands=[{"C"}],
         profile=MagicMock(spec=PreferenceProfile),
     )
     second = ElectionState(
         curr_round=2,
         elected=[{"D"}, {"F"}],
-        eliminated=[{"E"}],
+        eliminated_cands=[{"E"}],
         profile=MagicMock(spec=PreferenceProfile),
         previous=first,
     )
 
-    rank = second.get_rankings()
+    rank = second.rankings()
     assert rank == [{"A"}, {"B"}, {"D"}, {"F"}, {"E"}, {"C"}]
 
 
@@ -232,7 +229,7 @@ def test_status_df_one_round():
         curr_round=1,
         elected=[{"A"}, {"B"}],
         remaining=[{"F"}],
-        eliminated=[{"C"}],
+        eliminated_cands=[{"C"}],
         profile=MagicMock(spec=PreferenceProfile),
     )
     df = first.status()
@@ -256,13 +253,13 @@ def test_status_no_remaining():
         curr_round=1,
         elected=[{"A"}, {"B"}],
         remaining=[{"F"}],
-        eliminated=[{"C"}],
+        eliminated_cands=[{"C"}],
         profile=MagicMock(spec=PreferenceProfile),
     )
     second = ElectionState(
         curr_round=2,
         elected=[{"D"}, {"F"}],
-        eliminated=[{"E"}],
+        eliminated_cands=[{"E"}],
         profile=MagicMock(spec=PreferenceProfile),
         previous=first,
     )
@@ -290,7 +287,7 @@ def test_status_missing_fields():
     rd = ElectionState(
         curr_round=1,
         elected=[{"D"}, {"F"}],
-        eliminated=[{"E"}],
+        eliminated_cands=[{"E"}],
         profile=MagicMock(spec=PreferenceProfile),
         previous=None,
     )
@@ -304,3 +301,87 @@ def test_status_missing_fields():
             }
         )
     )
+
+
+def test_to_dict():
+    rd = ElectionState(
+        curr_round=1,
+        elected=[{"A"}, {"B"}],
+        eliminated_cands=[{"C"}],
+        remaining=[{"D"}],
+        profile=MagicMock(spec=PreferenceProfile),
+        previous=None,
+    )
+
+    expected = {
+        "elected": ["A", "B"],
+        "eliminated": ["C"],
+        "remaining": ["D"],
+        "ranking": ["A", "B", "D", "C"],
+    }
+
+    assert rd.to_dict() == expected
+
+
+def test_to_dict_keep():
+    rd = ElectionState(
+        curr_round=1,
+        elected=[{"A"}, {"B"}],
+        eliminated_cands=[{"C"}],
+        remaining=[{"D"}],
+        profile=MagicMock(spec=PreferenceProfile),
+        previous=None,
+    )
+    assert rd.to_dict(keep=["elected"]) == {"elected": ["A", "B"]}
+
+
+def test_to_dict_maintain_ties():
+    rd = ElectionState(
+        curr_round=1,
+        elected=[{"A"}, {"B", "E"}],
+        eliminated_cands=[{"C"}],
+        remaining=[{"D"}],
+        profile=MagicMock(spec=PreferenceProfile),
+        previous=None,
+    )
+
+    results_dict = rd.to_dict(keep=["elected"])
+
+    # tuples ('E', 'B') and ('B', 'E') represent same tied ranking
+    assert results_dict == {"elected": ["A", ("B", "E")]} or results_dict == {
+        "elected": ["A", ("E", "B")]
+    }
+
+
+def test_get_scores():
+    first = ElectionState(
+        curr_round=1,
+        elected=[{"A"}, {"B"}],
+        remaining=[{"F"}],
+        eliminated_cands=[{"C"}],
+        scores={"A": 4, "B": 6, "F": 3, "C": 9},
+        profile=MagicMock(spec=PreferenceProfile),
+    )
+    second = ElectionState(
+        curr_round=2,
+        elected=[{"D"}, {"F"}],
+        eliminated_cands=[{"E"}],
+        scores={"D": 6, "F": 3, "E": 9},
+        profile=MagicMock(spec=PreferenceProfile),
+        previous=first,
+    )
+
+    assert second.get_scores(1) == {"A": 4, "B": 6, "F": 3, "C": 9}
+
+
+def test_score_error():
+    first = ElectionState(
+        curr_round=1,
+        elected=[{"A"}, {"B"}],
+        remaining=[{"F"}],
+        eliminated_cands=[{"C"}],
+        scores={"A": 4, "B": 6, "F": 3, "C": 9},
+        profile=MagicMock(spec=PreferenceProfile),
+    )
+    with pytest.raises(ValueError):
+        first.get_scores(4)

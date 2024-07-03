@@ -1,8 +1,8 @@
 ## VoteKit
 
-`VoteKit` ia a Swiss army knife for computational social choice research.
+`VoteKit` is a Swiss army knife for computational social choice research.
 
-**Helpful links:** [Source Repository](https://github.com/mggg/VoteKit) | [Documentation](https://mggg.github.io/VoteKit/) | [Issues](https://github.com/mggg/VoteKit/issues) | [MGGG.org](https://mggg.org/)
+**Helpful links:** [Source Repository](https://github.com/mggg/VoteKit) | [Documentation](https://votekit.readthedocs.io/en/latest/) | [Issues](https://github.com/mggg/VoteKit/issues) | [MGGG.org](https://mggg.org/)
 
 
 [![PyPI badge](https://badge.fury.io/py/votekit.svg)](https://badge.fury.io/py/votekit)
@@ -22,7 +22,7 @@ or
 A simple example of how to use VoteKit to load, clean, and run an election using real [data](https://vote.minneapolismn.gov/results-data/election-results/2013/mayor/) taken from the 2013 Minneapolis Mayoral election. For a more comprehensive walkthrough, see the [documentation](https://mggg.github.io/VoteKit/). 
 
 ```python
-from votekit load_csv, remove_noncands
+from votekit import load_csv, remove_noncands
 from votekit.elections import STV, fractional_transfer
 
 minneapolis_profile = load_csv("mn_2013_cast_vote_record.csv")

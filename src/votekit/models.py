@@ -9,7 +9,11 @@ from .utils import recursively_fix_ties, fix_ties
 class Election(ABC):
     """
     Abstract base class for election types. Includes functions to resolve input
-    ties included in PreferenceProfile
+    ties included in PreferenceProfile.
+
+    Attributes:
+        profile: a PreferenceProfile.
+        ballot_ties: an optional Bool, defaults to True. If True, resolve ties on ballots.
     """
 
     def __init__(self, profile: PreferenceProfile, ballot_ties: bool = True):
@@ -19,6 +23,39 @@ class Election(ABC):
             self._profile = profile
 
         self.state = ElectionState(curr_round=0, profile=self._profile)
+
+    def reset(self):
+        """
+        Reset the ElectionState object to initial conditions.
+        """
+
+        self.state = ElectionState(curr_round=0, profile=self._profile)
+
+    def run_to_step(self, step: int):
+        """
+        Run the election to the given step.
+
+        Args:
+            step (int): The step of the election to run to.
+
+        Returns:
+            The ElectionState object for round = step.
+        """
+        if isinstance(step, int):
+            if step < 0:
+                raise ValueError("Step must be a non-negative integer.")
+
+            elif step >= 0:
+                while self.state.curr_round < step:
+                    self.run_step()
+
+                while self.state.curr_round > step:
+                    if self.state.previous:
+                        self.state = self.state.previous
+                    else:
+                        raise ValueError("Previous state is None type.")
+
+            return self.state
 
     @abstractmethod
     def run_step(self, *args: Any, **kwargs: Any):

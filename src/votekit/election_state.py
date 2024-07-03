@@ -1,6 +1,7 @@
 import pandas as pd
 from pydantic import BaseModel
 from typing import Optional
+import json
 
 from .pref_profile import PreferenceProfile
 from .utils import candidate_position_dict
@@ -10,97 +11,138 @@ pd.set_option("display.colheader_justify", "left")
 
 class ElectionState(BaseModel):
     """
-    Class for storing information on each round of a RCV election and the final outcome.
+    Class for storing information on each round of an election and the final outcome.
 
-    **Attributes**
-    `curr_round`
-    :   current round number. Defaults to 0
+    Args:
+        profile (PreferenceProfile): An instance of a ``PreferenceProfile`` object.
+        curr_round (int, optional): Current round number. Defaults to 0.
+        elected (list[set[str]], optional): List of sets of candidates who pass a threshold to win.
+            Candidates in the same set were elected simultaneously. Defaults to empty list.
+        eliminated_cands (list[set[str]], optional): List of sets of candidates who were eliminated.
+            Candidates in the same set were eliminated simultaneously. Defaults to empty list.
+        remaining (list[set[str]], optional): List of sets of candidates who are remaining.
+            Candidates in the same set were eliminated simultaneously. Defaults to empty list.
+        scores (dict, optional): Dictionary mapping candidate names to scores. Defaults to
+            empty dictionary.
+        previous (ElectionState, optional): An instance of an ``ElectionState`` representing the
+            previous round. Defaults to None.
 
-    `elected`
-    :   list of candidates who pass a threshold to win
-
-
-    `eliminated`
-    :   list of candidates who were eliminated
-
-    `remaining`
-    :   list of candidates who are still in the running
-
-    `rankings`
-    :   list ranking of candidates with sets representing ties
-
-    `profile`
-    :   an instance of a preference profile object
-
-    `previous`
-    :   an instance of ElectionState representing potential previous round
-
-    **Methods**
+    Attributes:
+        profile (PreferenceProfile): An instance of a ``PreferenceProfile`` object.
+        curr_round (int, optional): Current round number. Defaults to 0.
+        elected (list[set[str]], optional): List of sets of candidates who pass a threshold to win.
+            Candidates in the same set were elected simultaneously. Defaults to empty list.
+        eliminated_cands (list[set[str]], optional): List of sets of candidates who were eliminated.
+            Candidates in the same set were eliminated simultaneously. Defaults to empty list.
+        remaining (list[set[str]], optional): List of sets of candidates who are remaining.
+            Candidates in the same set were eliminated simultaneously. Defaults to empty list.
+        scores (dict, optional): Dictionary mapping candidate names to scores. Defaults to
+            empty dictionary.
+        previous (ElectionState, optional): An instance of an ``ElectionState`` representing the
+            previous round. Defaults to None.
     """
 
     curr_round: int = 0
     elected: list[set[str]] = []
-    eliminated: list[set[str]] = []
+    eliminated_cands: list[set[str]] = []
     remaining: list[set[str]] = []
     profile: PreferenceProfile
+    scores: dict = {}
     previous: Optional["ElectionState"] = None
 
     class Config:
         allow_mutation = False
 
-    def get_all_winners(self) -> list[set[str]]:
+    def winners(self) -> list[set[str]]:
         """
-        Returns a list of elected candidates ordered from first round to current round
+        Winners up to current round.
+
+        Returns:
+            list[set[str]]: A list of elected candidates ordered from first round to current round.
         """
         if self.previous:
-            return self.previous.get_all_winners() + self.elected
-        else:
-            return self.elected
+            return self.previous.winners() + self.elected
 
-    def get_all_eliminated(self) -> list[set[str]]:
+        return self.elected
+
+    def eliminated(self) -> list[set[str]]:
         """
-        Returns a list of eliminated candidates ordered from current round to first round
+        Eliminated candidates up to current round.
+
+        Returns:
+            list[set[str]]: A list of eliminated candidates ordered from current round to first
+                round.
         """
         if self.previous:
-            return self.eliminated + self.previous.get_all_eliminated()
-        else:
-            return self.eliminated
+            return self.eliminated_cands + self.previous.eliminated()
 
-    def get_rankings(self) -> list[set[str]]:
+        return self.eliminated_cands
+
+    def rankings(self) -> list[set[str]]:
         """
-        Returns list of all candidates in order of their ranking after each round
+        Show the current rankings of all candidates.
+
+        Returns:
+            list[set[str]]: List of all candidates in order of their ranking after each round,
+                first the winners, then remaining, then the eliminated candidates.
         """
         if self.remaining != [{}]:
-            return self.get_all_winners() + self.remaining + self.get_all_eliminated()
-        else:
-            return self.get_all_winners() + self.get_all_eliminated()
+            return self.winners() + self.remaining + self.eliminated()
 
-    def get_round_outcome(self, roundNum: int) -> dict:
-        # {'elected':list[set[str]], 'eliminated':list[set[str]]}
+        return self.winners() + self.eliminated()
+
+    def round_outcome(self, round: int) -> dict:
         """
-        Returns a dictionary with elected and eliminated candidates
+        Finds the outcome of a given round.
+
+        Args:
+            round (int): Round number.
+
+        Returns:
+            dict: A dictionary with elected, remaining, and eliminated candidates.
         """
-        if self.curr_round == roundNum:
+        if self.curr_round == round:
             return {
-                "Elected": [c for s in self.elected for c in s],
-                "Eliminated": [c for s in self.eliminated for c in s],
+                "Elected": self.elected,
+                "Eliminated": self.eliminated_cands,
+                "Remaining": self.remaining,
             }
         elif self.previous:
-            return self.previous.get_round_outcome(roundNum)
+            return self.previous.round_outcome(round)
         else:
             raise ValueError("Round number out of range")
 
+    def get_scores(self, round: int = curr_round) -> dict:
+        """
+        Get the scores for a desired round.
+
+        Args:
+            round (int, optional): Round number. Defaults to current round.
+        Returns:
+            dict: A dictionary of the candidate scores for the inputted round.
+        """
+        if round == 0 or round > self.curr_round:
+            raise ValueError('Round number out of range"')
+
+        if round == self.curr_round:
+            return self.scores
+
+        return self.previous.get_scores(self.curr_round - 1)  # type: ignore
+
     def changed_rankings(self) -> dict:
         """
-        Returns dict of (key) candidate(s) who changed
-        ranking from previous round and (value) a tuple of (previous rank, new rank)
+        Which candidates changed rank between current and previous round.
+
+        Returns:
+            dict: A dictionary with keys = candidate(s) who changed ranking from previous round
+                and values = a tuple of (previous rank, new rank).
         """
 
         if not self.previous:
             raise ValueError("This is the first round, cannot compare previous ranking")
 
-        prev_ranking: dict = candidate_position_dict(self.previous.get_rankings())
-        curr_ranking: dict = candidate_position_dict(self.get_rankings())
+        prev_ranking: dict = candidate_position_dict(self.previous.rankings())
+        curr_ranking: dict = candidate_position_dict(self.rankings())
         if curr_ranking == prev_ranking:
             return {}
 
@@ -112,10 +154,13 @@ class ElectionState(BaseModel):
 
     def status(self) -> pd.DataFrame:
         """
-        Returns dataframe displaying candidate, status (elected, eliminated,
-        remaining), and the round their status updated
+        Yield the status of the candidates in the current round.
+
+        Returns:
+            pd.DataFrame: Data frame displaying candidate, status (elected, eliminated,
+                remaining), and the round their status updated.
         """
-        all_cands = [c for s in self.get_rankings() for c in s]
+        all_cands = [c for s in self.rankings() for c in s]
         status_df = pd.DataFrame(
             {
                 "Candidate": all_cands,
@@ -125,16 +170,77 @@ class ElectionState(BaseModel):
         )
 
         for round in range(1, self.curr_round + 1):
-            results = self.get_round_outcome(round)
-            for status, candidates in results.items():
-                for cand in candidates:
-                    status_df.loc[status_df["Candidate"] == cand, "Status"] = status
-                    status_df.loc[status_df["Candidate"] == cand, "Round"] = round
+            results = self.round_outcome(round)
+            for status, ranking in results.items():
+                for s in ranking:
+                    for cand in s:
+                        tied_str = ""
+                        # if tie
+                        if len(s) > 1:
+                            remaining_cands = ", ".join(list(s.difference(cand)))
+                            tied_str = f" (tie with {remaining_cands})"
+
+                        status_df.loc[status_df["Candidate"] == cand, "Status"] = (
+                            status + tied_str
+                        )
+                        status_df.loc[status_df["Candidate"] == cand, "Round"] = round
 
         return status_df
 
+    def to_dict(self, keep: list = []) -> dict:
+        """
+        Returns election results as a dictionary.
+
+        Args:
+            keep (list, optional): List of information to store in dictionary. Should be subset of
+                "elected", "eliminated", "remaining", "ranking". Defaults to empty list,
+                which stores all information.
+
+        Returns:
+            dict: Dictionary of election results.
+
+        """
+        keys = ["elected", "eliminated", "remaining", "ranking"]
+        values: list = [
+            self.winners(),
+            self.eliminated(),
+            self.remaining,
+            self.rankings(),
+        ]
+
+        rv = {}
+        for key, values in zip(keys, values):
+            if keep and key not in keep:
+                continue
+            # pull out candidates from sets, if tied adds tuple of tied candidates
+            temp_lst = []
+            for cand_set in values:
+                if len(cand_set) > 1:
+                    temp_lst.append(tuple(cand_set))
+                else:
+                    temp_lst += [cand for cand in cand_set]
+            rv[key] = temp_lst
+
+        return rv
+
+    def to_json(self, file_path: str, keep: list = []):
+        """
+        Saves election state object as a JSON file.
+
+        Args:
+            file_path (str): The name of the file path.
+            keep (list, optional): List of information to store in dictionary, should be subset of
+                "elected", "eliminated", "remaining", "ranking". Defaults to empty list,
+                which stores all information.
+        """
+
+        json_dict = json.dumps(self.to_dict(keep=keep))
+        with open(file_path, "w") as outfile:
+            outfile.write(json_dict)
+
     def __str__(self):
         show = self.status()
+        print(f"Current Round: {self.curr_round}")
         return show.to_string(index=False, justify="justify")
 
     __repr__ = __str__

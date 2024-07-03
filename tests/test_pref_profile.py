@@ -47,10 +47,8 @@ def test_condense_profile():
             Ballot(ranking=[{"A"}, {"B"}, {"C"}], weight=Fraction(2)),
         ]
     )
-    profile.condense_ballots()
-    assert profile.ballots[0] == Ballot(
-        ranking=[{"A"}, {"B"}, {"C"}], weight=Fraction(3)
-    )
+    pp = profile.condense_ballots()
+    assert pp.ballots[0] == Ballot(ranking=[{"A"}, {"B"}, {"C"}], weight=Fraction(3))
 
 
 def test_profile_equals():
@@ -89,7 +87,7 @@ def test_vote_share_with_zeros():
         ]
     )
     df = profile._create_df()
-    assert sum(df["Voter Share"]) == 0
+    assert sum(df["Weight"]) == 0
 
 
 def test_df_percents():
@@ -100,6 +98,33 @@ def test_df_percents():
         ]
     )
     rv = profile.head(2, percents=True)
-    assert "Voter Share" in rv
+    assert "Percent" in rv
     rv = profile.head(2)
-    assert "Voter Share" not in rv
+    assert "Percent" not in rv
+
+
+def test_add_profiles():
+    profile_1 = PreferenceProfile(
+        ballots=[
+            Ballot(ranking=[{"A", "B", "C"}], weight=1),
+            Ballot(ranking=[{"A", "B", "C"}], weight=2),
+            Ballot(ranking=[{"B", "A", "C"}], weight=1),
+        ]
+    )
+
+    profile_2 = PreferenceProfile(
+        ballots=[
+            Ballot(ranking=[{"A", "B", "C"}], weight=1),
+            Ballot(ranking=[{"C", "B", "A"}], weight=47),
+        ]
+    )
+
+    summed_profile = PreferenceProfile(
+        ballots=[
+            Ballot(ranking=[{"A", "B", "C"}], weight=4),
+            Ballot(ranking=[{"B", "A", "C"}], weight=1),
+            Ballot(ranking=[{"C", "B", "A"}], weight=47),
+        ]
+    )
+
+    assert profile_1 + profile_2 == summed_profile

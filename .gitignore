@@ -6,3 +6,8 @@ htmlcov/
 dist/
 .ipynb_checkpoints
 .idea
+extra_data/
+.venv
+.docs_venv
+docs/_build
+.dev
