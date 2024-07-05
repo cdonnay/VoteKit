@@ -1872,9 +1872,9 @@ class slate_BradleyTerry(BallotGenerator):
                 it.chain(*[pi.zero_cands for pi in pref_intervals.values()])
             )
 
-            if deterministic and len(self.candidates) >= 12:
+            if deterministic and len(self.candidates) >= 13:
                 raise UserWarning(
-                    "Deterministic sampling is only supported for 11 or fewer candidates.\n\
+                    "Deterministic sampling is only supported for 12 or fewer candidates.\n\
                     Please set deterministic = False."
                 )
 
